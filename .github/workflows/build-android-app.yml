@@ -227,6 +227,9 @@ jobs:
           GB_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           GB_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           GB_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          # Unique and increasing on every run, so Play never sees a repeated
+          # versionCode. Offset past the low numbers already used by hand.
+          GB_VERSION_CODE: ${{ 100 + github.run_number }}
         run: ./gradlew --no-daemon bundleRelease
 
       # Play rejects a debuggable bundle. bundleRelease should never produce one,
