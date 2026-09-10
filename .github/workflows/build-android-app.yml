@@ -135,7 +135,9 @@ jobs:
   release-aab:
     name: Signed release AAB (for Play Console)
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # Deliberately not gated on the trigger. A job skipped by an `if` shows only
+    # a grey icon with no reason, which is indistinguishable from missing
+    # secrets. This always runs and always says what happened.
     steps:
       - uses: actions/checkout@v4
 
@@ -146,9 +148,26 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets found — building the AAB."
+            echo "### AAB: building" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No signing secrets set, so the release AAB was skipped. The debug APK still built."
+            echo "KEYSTORE_BASE64 is empty or not set, so there will be no AAB."
+            {
+              echo "### No AAB was built"
+              echo ""
+              echo "The secret \`KEYSTORE_BASE64\` is empty or missing in **this** repository."
+              echo ""
+              echo "Add all four under Settings -> Secrets and variables -> Actions ->"
+              echo "New **repository** secret (not an environment secret):"
+              echo ""
+              echo "- \`KEYSTORE_BASE64\`"
+              echo "- \`KEYSTORE_PASSWORD\`"
+              echo "- \`KEY_ALIAS\`  (the value is \`grihobazar\`)"
+              echo "- \`KEY_PASSWORD\`"
+              echo ""
+              echo "The debug APK is unaffected and still builds."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Find the project
@@ -209,6 +228,39 @@ jobs:
           GB_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           GB_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew --no-daemon bundleRelease
+
+      # Play rejects a debuggable bundle. bundleRelease should never produce one,
+      # but say so explicitly on the run page so the right file is obvious.
+      - name: Report the bundle that was built
+        if: steps.signing.outputs.ready == 'true'
+        working-directory: ${{ steps.proj.outputs.dir }}
+        run: |
+          aab=$(find app/build/outputs/bundle/release -name '*.aab' | head -1)
+          if [ -z "$aab" ]; then
+            echo "::error::bundleRelease produced no .aab"
+            exit 1
+          fi
+          size=$(du -h "$aab" | cut -f1)
+          echo "Built: $aab ($size)"
+
+          # Best-effort: a release manifest carries no android:debuggable at all.
+          if unzip -p "$aab" base/manifest/AndroidManifest.xml 2>/dev/null | grep -qa 'debuggable'; then
+            note="WARNING - the manifest mentions 'debuggable'. Check before uploading."
+          else
+            note="No debuggable flag found - this is a release build."
+          fi
+          echo "$note"
+
+          {
+            echo "### AAB ready"
+            echo ""
+            echo "Built from \`bundleRelease\` (not a debug build)."
+            echo ""
+            echo "Download the **grihobazar-release-aab** artifact below, unzip it, and upload"
+            echo "the file inside — it is named \`app-release.aab\`."
+            echo ""
+            echo "$note"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload AAB
         if: steps.signing.outputs.ready == 'true'
