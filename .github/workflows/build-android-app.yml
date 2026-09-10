@@ -219,6 +219,17 @@ jobs:
         working-directory: ${{ steps.proj.outputs.dir }}
         run: chmod +x ./gradlew
 
+      # Play permanently reserves every versionCode it has seen, so each upload
+      # needs a new one. GitHub Actions expressions have no arithmetic, so the
+      # offset is applied here in the shell rather than in a ${{ }} expression.
+      - name: Work out a unique version code
+        if: steps.signing.outputs.ready == 'true'
+        id: vc
+        run: |
+          code=$((100 + GITHUB_RUN_NUMBER))
+          echo "Using versionCode $code (run number $GITHUB_RUN_NUMBER)"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Compile and sign the AAB
         if: steps.signing.outputs.ready == 'true'
         working-directory: ${{ steps.proj.outputs.dir }}
@@ -229,7 +240,7 @@ jobs:
           GB_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           # Unique and increasing on every run, so Play never sees a repeated
           # versionCode. Offset past the low numbers already used by hand.
-          GB_VERSION_CODE: ${{ 100 + github.run_number }}
+          GB_VERSION_CODE: ${{ steps.vc.outputs.code }}
         run: ./gradlew --no-daemon bundleRelease
 
       # Play rejects a debuggable bundle. bundleRelease should never produce one,
